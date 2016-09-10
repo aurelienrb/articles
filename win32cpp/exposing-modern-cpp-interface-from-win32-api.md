@@ -40,8 +40,7 @@ public:
     }
     ~CFile() {
         std::fclose(handle);
-    }</cpp>",
-
+    }
     void print(const char * text) {
         std::fprintf(handle, text);
     }
