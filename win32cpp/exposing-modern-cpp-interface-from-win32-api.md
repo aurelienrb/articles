@@ -34,21 +34,21 @@ In the above example, we can identify that the `FILE` object has a constructor n
 
 class CFile {
 public:
-    explicit CFile(const char * fileName,
-                   const char * fileMode) {
-        handle = std::fopen(fileName, fileMode);
+    CFile(const char * fileName,
+          const char * fileMode) {
+        m_handle = std::fopen(fileName, fileMode);
     }
     ~CFile() {
-        std::fclose(handle);
+        std::fclose(m_handle);
     }
     void print(const char * text) {
-        std::fprintf(handle, text);
+        std::fprintf(m_handle, text);
     }
 private:
     CFile(const CFile &) = delete; // non copyable
     CFile & operator=(const CFile &) = delete;
 
-    FILE * handle;
+    FILE * m_handle;
 };
 
 int main() {
