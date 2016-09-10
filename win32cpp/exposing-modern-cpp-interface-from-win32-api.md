@@ -24,7 +24,8 @@ int main() {
     fprintf(handle, "Hello World!");
     fclose(handle);
     return 0;
-}```
+}
+```
 
 In the above example, we can identify that the `FILE` object has a constructor named `fopen`, a destructor named `fclose` and a member function named `fprintf`. Let's group them together in a C++ class.
 
@@ -54,7 +55,8 @@ private:
 int main() {
     CFile file("test.txt", "w");
     file.print("Hello World!");
-}```
+}
+```
 
 This is a very classic way to wrap an existing code in C++. It is based on the <abbr title="Resource Acquisition Is Initialization">RAII</abbr> idiom and, as a side effect, the resulting class is designed to be directly manipulated (value semantic) instead of being indirectly accessed through a pointer (reference semantic).
 
@@ -62,11 +64,11 @@ It's a major change to the original C interface that it is worth mentioning[^2].
 
 [^2]: Moreover, we had to make our class non copyable because the underlying FILE object is not copyable. This is somewhat in conflict with the introduced value semantic.
 
-![](/images/cfile-layer.png)
+![](images/cfile-layer.png)
 
 In such a design the C++ code is completely unknown and unrelated to the C library space. And this is not what we want to do in this article. Our goal is to expose a C++ interface from an existing C library without touching it:
 
-![](/images/cfile-nolayer.png)
+![](images/cfile-nolayer.png)
 
 It might sound unfeasible or at least very complicated since the library wasn't designed for that purpose. But it is actually quite simple: just remove the need of a C++ proxy instance. And that's what we are going to see right now.
 
@@ -80,7 +82,8 @@ int main() {
     fprintf(handle, "Hello World!");
     fclose(handle);
     return 0;
-}```
+}
+```
 
 We might realize that the file handle is being used in a similar fashion than the hidden `this` pointer of a C++ class instance. Therefore, the following question might arise: what about casting the FILE pointer directly to a CFile object?
 
@@ -106,7 +109,8 @@ int main() {
         file->print("Hello World!");
         file->close();
     }
-}```
+}
+```
 
 It works, on both Windows and Linux. If we compare the compiled code of the C and C++ versions with optimizations turned on, it is strictly the same<note>The resulting exe is different because the second version embeds the code of the CFile class, but when optimizations are turned on, the assembly code generated for the main function is the same in both version.</note>. It is hence possible to have two distinct interfaces corresponding to the same binary implementation. Even if it's a side effect of compiler optimization, that's a good start!
 
@@ -159,24 +163,26 @@ int main() {
         }
         lib->Free();
     }
-}```
+}
+```
 
 It can be tested from the VS2013 x86 command prompt:
 
-```
-cl.exe /MD hacking_handles.cpp /Fehacking_handles-x86.exe```
+`cl.exe /MD hacking_handles.cpp /Fehacking_handles-x86.exe`
 
-![](/images/hello-win32.png)
+![](images/hello-win32.png)
 
 And from the VS2013 x64 command prompt:
 
-```
-cl.exe /MD hacking_handles.cpp /Fehacking_handles-x64.exe```
+`cl.exe /MD hacking_handles.cpp /Fehacking_handles-x64.exe`
 
-![](/images/hello-win64.png)
+![](images/hello-win64.png)
 
-As shown above, the `this` pointer has been successfully mapped on the `HMODULE` handle. That's because on both Win32 and Win64, handle types are defined as opaque pointers, making their size equal to the size of a pointer. This is the first requirement of that trick<note>Actually, the size of the handle type could be less than the size of a pointer depending on how the calling convention promotes types.</note>.</p>
-<p>The second requirement is to never dereference the `this` pointer. For that reason our classes must always be completely empty, which means of course no data member, but also no virtual feature (to avoid the virtual table pointer).
+As shown above, the `this` pointer has been successfully mapped on the `HMODULE` handle. That's because on both Win32 and Win64, handle types are defined as opaque pointers, making their size equal to the size of a pointer. This is the first requirement of that trick[^3].
+
+[^3]: Actually, the size of the handle type could be less than the size of a pointer depending on how the calling convention promotes types.
+
+The second requirement is to never dereference the `this` pointer. For that reason our classes must always be completely empty, which means of course no data member, but also no virtual feature (to avoid the virtual table pointer).
 
 ### Adjusting the object model
 
@@ -189,7 +195,8 @@ private:
     ~WinObject() = delete;
     WinObject(const WinObject &) = delete;
     WinObject & operator=(const WinObject &) = delete;
-};```
+};
+```
 
 The default constructor and the destructor are private and even marked as deleted (C++11 feature) to reflect the fact we don't have access to them (they are not exposed by Win32). We also forbid object copy to strengthen the reference semantic of theses objects.
 
@@ -208,11 +215,12 @@ static_assert(sizeof(WinObject) == 1, "Not empty!");
 
 // susceptible to fail!
 static_assert(sizeof(A) == 1, "Not empty!");
-static_assert(sizeof(B) == 1, "Not empty!");```
+static_assert(sizeof(B) == 1, "Not empty!");
+```
 
-It appears to work fine thanks to the Empty Base Optimization[^3]. Such an optimization is possible because the standard says the base class sub-object *may* have zero size (1.8/5)... or may not!
+It appears to work fine thanks to the Empty Base Optimization[^4]. Such an optimization is possible because the standard says the base class sub-object *may* have zero size (1.8/5)... or may not!
 
-[^3]: VC++ supports EBO since many years. It is known to have been restricted to single inheritance but even though that's fine for us.
+[^4]: VC++ supports EBO since many years. It is known to have been restricted to single inheritance but even though that's fine for us.
 
 In other terms we are in the implementation defined gray zone. But since we target quite modern compilers (C++11) that's a reasonable lelvel of risk. And the `static_assert` is here to detect any problem.
 
@@ -260,14 +268,14 @@ public:
 };
 
 static_assert(sizeof(Module) == 1, "Not empty!");
-} // namespace winapi```
+}
+```
 
 Common Win32 types such as `UINT` can be easily replaced by standard C++ types, including `BOOL` that can be safely substituted by `bool` since `true` and `false` are guaranted to be 1 and 0 by the standard (4.5/4 and 4.7/4).
 
 Note the use of the `winapi` namespace, of function overloading for `Module::Load`, and of `std::nullptr_t` to force the caller to pass `nullptr` (as required by the documentation of `LoadLibraryEx`).
 
 The preprocessor constants expected by `LoadLibraryEx` have been grouped together in a strongly typed enum. This C++11 feature is very convenient to control the underlying type of the enum, but the fact it is strongly typed forbids the values to be combined together as it is normally possible here (it's not always the case). A specific `operator|` had to be added for that purpose.
-</ul>
 
 You may wonder he reason why we introduced the `__stdcall` calling convention. That's what we are going to see right now.
 
@@ -304,7 +312,8 @@ Module::GetProcAddress(const char *) {
     __asm jmp dword ptr [Win32GetProcAddress]
 }
 
-} // namespace winapi```
+}
+```
 
 The `__declspec(naked)` is a VC++ specific extension that tells the compiler not to generate prologue and epilogue for the function. The given stack frame is therefore not modified by C++ and it can be directly forwarded to the Win32 function. No more need to push again on the stack the given parameters, neither do we need their names! However we still need to include *windows.h* in the implementation file in order to get the name of the Win32 functions to jump to.
 
@@ -316,14 +325,14 @@ If you are familliar with the <abbr title="Portable Executable">PE</abbr> format
 
 Now, a function pointer is a data, and you don't call a data: you call the function pointed by this data. So our direct call to `LoadLibraryA` should be nonsense:
 
-```
-call LoadLibraryA```
+`call LoadLibraryA`
 
 but it does work fine. That's because the linker generated an additional stub that looks like this:
 
 ```
 LoadLibraryA:
-    jmp dword ptr [__imp__LoadLibraryA@8]```
+    jmp dword ptr [__imp__LoadLibraryA@8]
+```
 
 where `__imp__LoadLibraryA@8` is the symbol name for the function pointer in the IAT. Therefore `LoadLibraryA` is not the real function living in kernel32.dll but a local function specific to our module<note>This stub is not generated when our own module importing `LoadLibraryA` is being built but when the module that exports the function (kernel32.dll) was created. It was then placed with other similar stubs in the resulting import library file (kernel32.lib).</note>! As a result, we have our own generated trampoline jumping to another trampoline generated by the linker. Let's fix that now.
 
@@ -343,7 +352,8 @@ Module::Free() {
 __declspec(naked) bool __stdcall
 Module::GetProcAddress(const char *) {
     __asm jmp dword ptr [__imp__GetProcAddress@8]
-}```
+}
+```
 
 The overhead of our interface is now being reduced to a single jump instruction. In term of runtime overhead, we won't do better. But we can still go further by letting the linker generate the trampoline stub, allowing us to completely remove the implementation code!
 
@@ -359,7 +369,8 @@ The general syntax is as follows:
 
 ```
 EXPORTS
-    <alias>=<function>```
+    <alias>=<function>
+```
     
 where *alias* is the name of our C++ alias and *function* the name of the already existing function. Since the forwarding mechanism jumps from the export table to the import table of the module, it is not possible to create an alias of an exported function living in the same module: *function* must reference a function exported by another module.
 
@@ -368,25 +379,29 @@ where *alias* is the name of our C++ alias and *function* the name of the alread
 EXPORTS
 ?Load@Module@winapi@@SGPAV12@PBD@Z=_LoadLibraryA@4
 ?Free@Module@winapi@@QAG_NXZ=_FreeLibrary@4
-?GetProcAddress@Module@winapi@@QAGPAXPBD@Z=_GetProcAddress@8```
+?GetProcAddress@Module@winapi@@QAGPAXPBD@Z=_GetProcAddress@8
+```
 
 The tricky part is to get the mangled names of the symbols:
 
-* for the C++ symbols: just build some testing code that references it and extract the mangled name from the resulting link error messages</li>
-* for the Win32 functions: the mangling scheme used is fairly simple: an underscore is prepended to the function name, and an at sign is appended followed by the total size in bytes of the expected parameters</li>
-* for the Win64 functions: names are not decorated!</li>
+* for the C++ symbols: just build some testing code that references it and extract the mangled name from the resulting link error messages
+* for the Win32 functions: the mangling scheme used is fairly simple: an underscore is prepended to the function name, and an at sign is appended followed by the total size in bytes of the expected parameters
+* for the Win64 functions: names are not decorated!
 
 ```
 ; Win64/x64 implementation
 EXPORTS
 ?Load@Module@winapi@@SAPEAV12@PEBD@Z=LoadLibraryA
 ?Free@Module@winapi@@QEAA_NXZ=FreeLibrary
-?GetProcAddress@Module@winapi@@QEAAPEAXPEBD@Z=GetProcAddress```
+?GetProcAddress@Module@winapi@@QEAAPEAXPEBD@Z=GetProcAddress
+```
 
 It's time to “build” the final result. From the x86 command prompt:
 
-```link /DLL /MACHINE:X86 /DEF:module-x86.def /OUT:win32cpp.dll
-/NOENTRY kernel32.lib /NOLOGO```
+```
+link /DLL /MACHINE:X86 /DEF:module-x86.def /OUT:win32cpp.dll
+/NOENTRY kernel32.lib /NOLOGO
+```
 
 The `/NOENTRY` option creates a resource-only DLL, making it void of any executable code. The resulting file size is 2.5 Ko!
 
@@ -400,4 +415,5 @@ ordinal hint RVA      name
   2  1 00001006 ?GetProcAddress@Module@winapi@@QAGPAXPBD@Z =
 _GetProcAddress@8
   3  2 0000100C ?Load@Module@winapi@@SGPAV12@PBD@Z =
-_LoadLibraryA@4```
+_LoadLibraryA@4
+```
