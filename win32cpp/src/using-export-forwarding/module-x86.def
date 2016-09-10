@@ -1,0 +1,6 @@
+; Win32/x86 implementation
+; link /DLL /MACHINE:X86 /DEF:module-x86.def /OUT:winapi.dll /NOENTRY kernel32.lib
+EXPORTS
+?Load@Module@winapi@@SGPAV12@PBD@Z=_LoadLibraryA@4
+?Free@Module@winapi@@QAG_NXZ=_FreeLibrary@4
+?GetProcAddress@Module@winapi@@QAGPAXPBD@Z=_GetProcAddress@8

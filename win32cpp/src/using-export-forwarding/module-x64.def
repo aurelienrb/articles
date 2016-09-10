@@ -1,0 +1,6 @@
+; Win64/x64 implementation
+; link /DLL /MACHINE:X64 /DEF:module-x64.def /OUT:winapi.dll /NOENTRY kernel32.lib
+EXPORTS
+?Load@Module@winapi@@SAPEAV12@PEBD@Z=LoadLibraryA
+?Free@Module@winapi@@QEAA_NXZ=FreeLibrary
+?GetProcAddress@Module@winapi@@QEAAPEAXPEBD@Z=GetProcAddress
