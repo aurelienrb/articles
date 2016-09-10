@@ -1,3 +1,15 @@
+---
+Title: Win32 revisited
+Subtitle: How to expose a modern C++11 interface from a 30 years old API
+FirstPublication: 08 Jan 2014
+
+![Handles are the junction points between the visible and the invisible spaces, the modern and the ancient times.](images/handles-small.jpg)
+
+The Windows API is a C programming interface isn't it? That doesn't prevent it to be object oriented. And actually many programmers are aware of that aspect of the library through the use of C++ layers built on top of it. But if Win32 is really object oriented, could we not use it directly in C++ without requiring any intermediate layer? This article explores how to tweak the API in that way.
+---
+
+# Win32 revisited - How to expose a modern C++11 interface from a 30 years old API
+
 ## Introduction
 
 Windows objects are abstractions used to manipulate various system resources. Their inner structure is hidden to the user via surrogate objects called handles which act as opaque identifiers from the client point of view. Implementation details for these objects are thus inaccessible, forcing the user to use the provided C interface[^1].
