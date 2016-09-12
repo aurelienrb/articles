@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>CyberKarma &bull; Win32 revisited</title>
+  <link rel="icon" type="/image/png" href="/img/favicon.png" />
+	<!-- Stylesheets -->
+	<link href="/css/bootstrap.min.css" rel="stylesheet">
+	<link href="/css/bootstrap-responsive.min.css" rel="stylesheet">
+	<link href="/css/halflings.css" rel="stylesheet">
+	<link href="/css/template.css" rel="stylesheet">
+	<link href="/css/colors/color-classic.css" rel="stylesheet" id="colorcss">
+	<link href="/css/socialicons.css" rel="stylesheet">
+	<link href="/css/glyphicons.css" rel="stylesheet">
+	<!-- Modernizr for Glyphicons (SVG) -->
+	<script src="/js/modernizr.js"></script>
+	<link href="/css/article.css" rel="stylesheet">
+  <link rel="stylesheet" href="/css/source-code.css" type="text/css" />
+</head>
+<body>
+
+<div class="container">
+<header>
+	<div class="masthead clearfix">
+		<a href="/"><img id="logo" src="/img/cyberkarma-slim.png" width="300" height="47" alt="CyberKarma" /></a>
+		<div class="clearfix"></div>
+		<p style="float: left">A well-written program is its own heaven; a poorly-written program is its own hell!</p>
+		<nav>
+		<ul id="nav" class="nav ww-nav pull-right hidden-phone">
+					<li  class="active"><a href="/articles/">Articles</a></li>
+				</ul>
+		</nav>
+	</div>
+	<hr class="clearfix" />
+</header>
+
+<div class="main-content">
+<div class="page_duo">
+  <div class="page_cell" id="cover">
+    <div class="page_frame">
+      <div class="page_head"></div>
+      <div class="page_body">
+        <h1>Win32 revisited</h1>
+        <div>
+            <div class="article_subtitle">How to expose a modern C++ interface from an API designed 25 years ago</div>
+            <div style="clear: both;"></div>
+        </div>
+        <div class="intro">The Windows API is a C programming interface isn't it? That doesn't prevent it to be object oriented. And actually many programmers are aware of that aspect of the library through the use of C++ layers built on top of it. But if Win32 is really object oriented, could we not use it directly in C++ without requiring any intermediate layer? This article explores how to tweak the API in that way.</div>
+        <div class="centered" style="width: 442px; margin-top: 60px;">
+            <img width="442" height="200" src="michelange.jpg" />
+            <div class="img_subtitle">Handles are the junction points between the visible and the invisible spaces, the modern and the ancient times.</div>
+        </div>
+      </div>
+      <div class="page_foot"></div>
+    </div>
+  </div>
+
+  <div class="page_cell" id="page1">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page1">1</a></div>
+        <div class="page_body"><h2>Introduction</h2>
+<p>Windows objects are abstractions used to manipulate various system resources. Their inner structure is hidden to the user via surrogate objects called handles which act as opaque identifiers from the client point of view. Implementation details for these objects are thus inaccessible, forcing the user to use the provided C interface<sup class="reference">1</sup>.</p>
+<p>The present article aims at create an alternative interface that is not based on C functions and opaque handles but on C++ classes corresponding to the system objects. Such classes must be void of any implementation code, and be seen as imported from the system libraries. The goal is really to expose a new interface from an existing implementation without touching it!</p>
+<p>In the first part we will focus on the technical aspects of that challenge, mostly dealing with low level C++ and system programming. In the second part, we will apply the resulting methodology to various system objects to see Win32 in a new light. Finally, we will try to extricate valuable lessons from that experiment.</p>
+
+<p class="important">This articles tries to take advantage of the new features introduced by C++11. As a result, Visual C++ 2013 is required to successfully compile the code (using VC++ 2012 will not work).<br /><br />
+Please note as well the source code presented in this article is often incomplete (in particular, there is no error management) to make it more concise.</p></div>
+        <div class="page_foot"><p>1. Abstracting the memory address of the objects is not only a matter of good encapsulation but a necessity when these objects must be shared among several processes at the same time, each one having its own virtual memory space.</p></div>
+    </div>
+  </div>
+  <div class="clear"></div>
+</div>
+
+<div class="page_duo">
+  <div class="page_cell" id="page2">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page2">2</a></div>
+        <div class="page_body"><h2>Part I - Technical principles</h2>
+<blockquote>
+<p class="quote">The more the marbles wastes, the more the statue grows.</p>
+<footer>- Michelangelo</footer>
+</blockquote>
+<p>There are various ways and strategies when it comes to wrap some existing C code in C++. Often, it involves tracking some kind of unique identifier that must be given back to the C library:</p>
+<pre class="cpp11"><span class="co2">#include &lt;stdio.h&gt;</span>
+&nbsp;
+<span class="kw4">int</span> main<span class="br0">&#40;</span><span class="br0">&#41;</span> <span class="br0">&#123;</span>
+    FILE <span class="sy2">*</span>handle <span class="sy1">=</span> fopen<span class="br0">&#40;</span><span class="st0">&quot;test.txt&quot;</span>, <span class="st0">&quot;w&quot;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+    fprintf<span class="br0">&#40;</span>handle, <span class="st0">&quot;Hello World!&quot;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+    fclose<span class="br0">&#40;</span>handle<span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="kw1">return</span> <span class="nu0">0</span><span class="sy4">;</span>
+<span class="br0">&#125;</span></pre>
+<p>In the above example, we can identify that the <tt>FILE</tt> object has a constructor named <tt>fopen</tt>, a destructor named <tt>fclose</tt> and a member function named <tt>fprintf</tt>. Let's group them together in a C++ class.</p>
+<pre class="cpp11"><span class="co2">#include &lt;cstdio&gt;</span>
+&nbsp;
+<span class="kw2">class</span> CFile <span class="br0">&#123;</span>
+<span class="kw2">public</span><span class="sy4">:</span>
+    <span class="kw2">explicit</span> CFile<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span> fileName,
+                   <span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span> fileMode<span class="br0">&#41;</span> <span class="br0">&#123;</span>
+        handle <span class="sy1">=</span> std<span class="sy4">::</span>fopen<span class="br0">&#40;</span>fileName, fileMode<span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="br0">&#125;</span>
+    ~CFile<span class="br0">&#40;</span><span class="br0">&#41;</span> <span class="br0">&#123;</span>
+        std<span class="sy4">::</span>fclose<span class="br0">&#40;</span>handle<span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="br0">&#125;</span></pre></div>
+        <div class="page_foot"></div>
+    </div>
+  </div>
+
+  <div class="page_cell" id="page3">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page3">3</a></div>
+        <div class="page_body"><pre class="cpp11">    <span class="kw4">void</span> print<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span> text<span class="br0">&#41;</span> <span class="br0">&#123;</span>
+        std<span class="sy4">::</span>fprintf<span class="br0">&#40;</span>handle, text<span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="br0">&#125;</span>
+<span class="kw2">private</span><span class="sy4">:</span>
+    CFile<span class="br0">&#40;</span><span class="kw4">const</span> CFile <span class="sy3">&amp;</span><span class="br0">&#41;</span> <span class="sy1">=</span> <span class="kw2">delete</span><span class="sy4">;</span> <span class="co1">// non copyable</span>
+    CFile <span class="sy3">&amp;</span> operator<span class="sy1">=</span><span class="br0">&#40;</span><span class="kw4">const</span> CFile <span class="sy3">&amp;</span><span class="br0">&#41;</span> <span class="sy1">=</span> <span class="kw2">delete</span><span class="sy4">;</span>
+&nbsp;
+    FILE <span class="sy2">*</span> handle<span class="sy4">;</span>
+<span class="br0">&#125;</span><span class="sy4">;</span>
+&nbsp;
+<span class="kw4">int</span> main<span class="br0">&#40;</span><span class="br0">&#41;</span> <span class="br0">&#123;</span>
+    CFile file<span class="br0">&#40;</span><span class="st0">&quot;test.txt&quot;</span>, <span class="st0">&quot;w&quot;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+    file.<span class="me1">print</span><span class="br0">&#40;</span><span class="st0">&quot;Hello World!&quot;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+<span class="br0">&#125;</span></pre>
+<p>This is a very classic way to wrap an existing code in C++. It is based on the <abbr title="Resource Acquisition Is Initialization">RAII</abbr> idiom and, as a side effect, the resulting class is designed to be directly manipulated (value semantic) instead of being indirectly accessed through a pointer (reference semantic).</p>
+<p>It's a major change to the original C interface that it is worth mentioning<sup class="reference">1</sup>. The CFile class is actually more acting like a proxy to the FILE object than a wrapper:</p>
+<img class="centered" width="418" height="133" src="cfile-layer.png" /></div>
+        <div class="page_foot"><p>1. Moreover, we had to make our class non copyable because the underlying FILE object is not copyable. This is somewhat in conflict with the introduced value semantic.</p></div>
+    </div>
+  </div>
+  <div class="clear"></div>
+</div>
+
+<div class="page_duo">
+  <div class="page_cell" id="page4">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page4">4</a></div>
+        <div class="page_body"><p>In such a design the C++ code is completely unknown and unrelated to the C library space. And this is not what we want to do in this article. Our goal is to expose a C++ interface from an existing C library without touching it:</p>
+<img class="centered" width="418" height="126" src="cfile-nolayer.png" />
+<p>It might sound unfeasible or at least very complicated since the library wasn't designed for that purpose. But it is actually quite simple: just remove the need of a C++ proxy instance. And that's what we are going to see right now.</p>
+<h3>Removing the data layer</h3>
+<p>If we look again at the original C code:</p>
+<pre class="cpp11"><span class="kw4">int</span> main<span class="br0">&#40;</span><span class="br0">&#41;</span> <span class="br0">&#123;</span>
+    FILE <span class="sy2">*</span> handle <span class="sy1">=</span> fopen<span class="br0">&#40;</span><span class="st0">&quot;test.txt&quot;</span>, <span class="st0">&quot;w&quot;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+    fprintf<span class="br0">&#40;</span>handle, <span class="st0">&quot;Hello World!&quot;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+    fclose<span class="br0">&#40;</span>handle<span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="kw1">return</span> <span class="nu0">0</span><span class="sy4">;</span>
+<span class="br0">&#125;</span></pre>
+<p>We might realize that the file handle is being used in a similar fashion than the hidden <tt>this</tt> pointer of a C++ class instance. Therefore, the following question might arise: what about casting the FILE pointer directly to a CFile object?</p></div>
+        <div class="page_foot"></div>
+    </div>
+  </div>
+
+  <div class="page_cell" id="page5">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page5">5</a></div>
+        <div class="page_body"><pre class="cpp11"><span class="kw2">class</span> CFile <span class="br0">&#123;</span>
+<span class="kw2">public</span><span class="sy4">:</span>
+    <span class="kw4">static</span> CFile <span class="sy2">*</span> open<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span> fileName,
+                        <span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span> fileMode<span class="br0">&#41;</span> <span class="br0">&#123;</span>
+        <span class="kw1">return</span> <span class="kw2">reinterpret_cast</span><span class="sy1">&lt;</span>CFile<span class="sy2">*</span><span class="sy1">&gt;</span><span class="br0">&#40;</span>
+            std<span class="sy4">::</span>fopen<span class="br0">&#40;</span>fileName, fileMode<span class="br0">&#41;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="br0">&#125;</span>
+    <span class="kw4">void</span> close<span class="br0">&#40;</span><span class="br0">&#41;</span> <span class="br0">&#123;</span>
+        std<span class="sy4">::</span>fclose<span class="br0">&#40;</span><span class="kw2">reinterpret_cast</span><span class="sy1">&lt;</span>FILE<span class="sy2">*</span><span class="sy1">&gt;</span><span class="br0">&#40;</span><span class="kw2">this</span><span class="br0">&#41;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="br0">&#125;</span>
+    <span class="kw4">void</span> print<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span> text<span class="br0">&#41;</span> <span class="br0">&#123;</span>
+        std<span class="sy4">::</span>fprintf<span class="br0">&#40;</span><span class="kw2">reinterpret_cast</span><span class="sy1">&lt;</span>FILE<span class="sy2">*</span><span class="sy1">&gt;</span><span class="br0">&#40;</span><span class="kw2">this</span><span class="br0">&#41;</span>, text<span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="br0">&#125;</span>
+<span class="br0">&#125;</span><span class="sy4">;</span>
+&nbsp;
+<span class="kw4">int</span> main<span class="br0">&#40;</span><span class="br0">&#41;</span> <span class="br0">&#123;</span>
+    CFile <span class="sy2">*</span> file <span class="sy1">=</span> CFile<span class="sy4">::</span>open<span class="br0">&#40;</span><span class="st0">&quot;test.txt&quot;</span>, <span class="st0">&quot;w&quot;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="kw1">if</span> <span class="br0">&#40;</span>file<span class="br0">&#41;</span> <span class="br0">&#123;</span>
+        file<span class="sy2">-</span><span class="sy1">&gt;</span>print<span class="br0">&#40;</span><span class="st0">&quot;Hello World!&quot;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+        file<span class="sy2">-</span><span class="sy1">&gt;</span>close<span class="br0">&#40;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="br0">&#125;</span>
+<span class="br0">&#125;</span></pre>
+<p>It works, on both Windows and Linux. If we compare the compiled code of the C and C++ versions with optimizations turned on, it is strictly the same<sup class="reference">1</sup>. It is hence possible to have two distinct interfaces corresponding to the same binary implementation. Even if it's a side effect of compiler optimization, that's a good start!</p>
+<p>The presence of <tt>reinterpret_cast</tt> tends to raise eyebrows, and that's for a good reason: it is often used to write illegal C++ code. In effect, addressing the same memory address from two different data types (other than [unsigned] char) at the same time is not guaranteed by the standard because of possible aliasing effects.</p></div>
+        <div class="page_foot"><p>1. The resulting exe is different because the second version embeds the code of the CFile class, but when optimizations are turned on, the assembly code generated for the main function is the same in both version.</p></div>
+    </div>
+  </div>
+  <div class="clear"></div>
+</div>
+
+<div class="page_duo">
+  <div class="page_cell" id="page6">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page6">6</a></div>
+        <div class="page_body"><p>However, in our case, we do not try to dereference the casted pointer. It was created only for syntactic purpose, and is casted back to the correct type each time it is needed. Therefore, this use of <tt>reinterpret_cast</tt> is perfectly valid and harmless.</p>
+<p>Anyway, that's just temporary code as we will see later how to get rid of all casts. But before that, let's see how we can apply the same trick on Win32 handles.</p>
+<h3>Hacking Win32 handles</h3>
+<pre class="cpp11"><span class="co2">#define WIN32_LEAN_AND_MEAN</span>
+<span class="co2">#include &lt;windows.h&gt;</span>
+&nbsp;
+<span class="kw2">class</span> Module <span class="br0">&#123;</span>
+<span class="kw2">public</span><span class="sy4">:</span>
+    <span class="kw4">static</span> Module <span class="sy2">*</span> Load<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span> fileName<span class="br0">&#41;</span> <span class="br0">&#123;</span>
+        <span class="kw1">return</span> <span class="kw2">reinterpret_cast</span><span class="sy1">&lt;</span>Module<span class="sy2">*</span><span class="sy1">&gt;</span><span class="br0">&#40;</span>
+            <span class="sy4">::</span>LoadLibraryA<span class="br0">&#40;</span>fileName<span class="br0">&#41;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="br0">&#125;</span>
+    <span class="kw4">bool</span> Free<span class="br0">&#40;</span><span class="br0">&#41;</span> <span class="br0">&#123;</span>
+        <span class="kw1">return</span> <span class="sy4">::</span>FreeLibrary<span class="br0">&#40;</span>
+            <span class="kw2">reinterpret_cast</span><span class="sy1">&lt;</span>HMODULE<span class="sy1">&gt;</span><span class="br0">&#40;</span><span class="kw2">this</span><span class="br0">&#41;</span><span class="br0">&#41;</span> <span class="sy1">==</span> TRUE<span class="sy4">;</span>
+    <span class="br0">&#125;</span>
+    <span class="kw2">template</span><span class="sy1">&lt;</span><span class="kw2">typename</span> T<span class="sy1">&gt;</span>
+    T GetProcAddress<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span> procName<span class="br0">&#41;</span> <span class="br0">&#123;</span>
+        <span class="kw1">return</span> <span class="br0">&#40;</span>T<span class="br0">&#41;</span> <span class="sy4">::</span>GetProcAddress<span class="br0">&#40;</span>
+                   <span class="kw2">reinterpret_cast</span><span class="sy1">&lt;</span>HMODULE<span class="sy1">&gt;</span><span class="br0">&#40;</span><span class="kw2">this</span><span class="br0">&#41;</span>,
+                   procName<span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="br0">&#125;</span>
+<span class="br0">&#125;</span><span class="sy4">;</span>
+&nbsp;
+<span class="co1">// pointer to the MessageBox (ANSI) function</span>
+<span class="kw4">typedef</span> <span class="kw4">int</span> <span class="br0">&#40;</span>WINAPI <span class="sy2">*</span> MsgBox<span class="br0">&#41;</span><span class="br0">&#40;</span>
+    HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType<span class="br0">&#41;</span><span class="sy4">;</span></pre></div>
+        <div class="page_foot"></div>
+    </div>
+  </div>
+
+  <div class="page_cell" id="page7">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page7">7</a></div>
+        <div class="page_body"><pre class="cpp11"><span class="co2">#ifdef _WIN64</span>
+    <span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span> message <span class="sy1">=</span> <span class="st0">&quot;Hello Win64 from C++!&quot;</span><span class="sy4">;</span>
+<span class="co2">#else</span>
+    <span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span> message <span class="sy1">=</span> <span class="st0">&quot;Hello Win32 from C++!&quot;</span><span class="sy4">;</span>
+<span class="co2">#endif</span>
+&nbsp;
+<span class="kw4">int</span> main<span class="br0">&#40;</span><span class="br0">&#41;</span> <span class="br0">&#123;</span>
+    Module <span class="sy2">*</span> lib <span class="sy1">=</span> Module<span class="sy4">::</span>Load<span class="br0">&#40;</span><span class="st0">&quot;user32.dll&quot;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="kw1">if</span> <span class="br0">&#40;</span>lib<span class="br0">&#41;</span> <span class="br0">&#123;</span>
+        <span class="kw4">auto</span> fn <span class="sy1">=</span> lib<span class="sy2">-</span><span class="sy1">&gt;</span>GetProcAddress<span class="sy1">&lt;</span>MsgBox<span class="sy1">&gt;</span><span class="br0">&#40;</span><span class="st0">&quot;MessageBoxA&quot;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+        <span class="kw1">if</span> <span class="br0">&#40;</span>fn<span class="br0">&#41;</span> <span class="br0">&#123;</span>
+            fn<span class="br0">&#40;</span><span class="kw2">nullptr</span>, message, <span class="st0">&quot;Ok!&quot;</span>, MB_OK<span class="br0">&#41;</span><span class="sy4">;</span>
+        <span class="br0">&#125;</span>
+        lib<span class="sy2">-</span><span class="sy1">&gt;</span>Free<span class="br0">&#40;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="br0">&#125;</span>
+<span class="br0">&#125;</span></pre>
+<p>It can be tested from the VS2013 x86 command prompt:</p>
+<pre>cl.exe /MD hacking_handles.cpp /Fehacking_handles-x86.exe</pre>
+<img class="centered" width="189" height="154" src="hello-win32.png" />
+<p>And from the VS2013 x64 command prompt:</p>
+<pre>cl.exe /MD hacking_handles.cpp /Fehacking_handles-x64.exe</pre></div>
+        <div class="page_foot"></div>
+    </div>
+  </div>
+  <div class="clear"></div>
+</div>
+
+<div class="page_duo">
+  <div class="page_cell" id="page8">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page8">8</a></div>
+        <div class="page_body"><img class="centered" width="189" height="154" src="hello-win64.png" />
+
+<p>As shown above, the <tt>this</tt> pointer has been successfully mapped on the HMODULE handle. That's because on both Win32 and Win64, handle types are defined as opaque pointers, making their size equal to the size of a pointer. This is the first requirement of that trick<sup class="reference">1</sup>.</p>
+<p>The second requirement is to never dereference the <tt>this</tt> pointer. For that reason our classes must always be completely empty, which means of course no data member, but also no virtual feature (to avoid the virtual table pointer).</p>
+<h3>Adjusting the object model</h3>
+<p>Instances of such classes can be neither instantiated nor destroyed directly by the user: they belong to Win32, and as a result they do not follow the default C++ object model. To reflect that important point in our design, we will use the following WinObject class as a common base for our future class hierarchy.</p>
+<pre class="cpp11"><span class="kw2">class</span> WinObject <span class="br0">&#123;</span>
+<span class="kw2">private</span><span class="sy4">:</span>
+    WinObject<span class="br0">&#40;</span><span class="br0">&#41;</span> <span class="sy1">=</span> <span class="kw2">delete</span><span class="sy4">;</span>
+    ~WinObject<span class="br0">&#40;</span><span class="br0">&#41;</span> <span class="sy1">=</span> <span class="kw2">delete</span><span class="sy4">;</span>
+    WinObject<span class="br0">&#40;</span><span class="kw4">const</span> WinObject <span class="sy3">&amp;</span><span class="br0">&#41;</span> <span class="sy1">=</span> <span class="kw2">delete</span><span class="sy4">;</span>
+    WinObject <span class="sy3">&amp;</span> operator<span class="sy1">=</span><span class="br0">&#40;</span><span class="kw4">const</span> WinObject <span class="sy3">&amp;</span><span class="br0">&#41;</span> <span class="sy1">=</span> <span class="kw2">delete</span><span class="sy4">;</span>
+<span class="br0">&#125;</span><span class="sy4">;</span></pre></div>
+        <div class="page_foot"><p>1. Actually, the size of the handle type could be less than the size of a pointer depending on how the calling convention promotes types.</p></div>
+    </div>
+  </div>
+
+  <div class="page_cell" id="page9">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page9">9</a></div>
+        <div class="page_body"><p>The default constructor and the destructor are private and even marked as deleted (C++11 feature) to reflect the fact we don't have access to them (they are not exposed by Win32). We also forbid object copy to strengthen the reference semantic of theses objects.</p>
+<p>As a result WinObject would normally become sealed: it would be impossible to instantiate a child class. But in our case, we will manipulate plenty of valid children instances. It's as if it was sealed for the users but not for the package it belongs to!</p>
+<p>But what about inheritance? An object size can't be zero even if it's an empty class. Therefore there is a risk to alter the layout of the children classes which then would make the compiler adjust the <tt>this</tt> pointer accordingly. In other words: it would invalidate our trick!</p>
+<pre class="cpp11"><span class="kw2">class</span> A <span class="sy4">:</span> <span class="kw2">public</span> WinObject <span class="br0">&#123;</span>
+<span class="br0">&#125;</span><span class="sy4">;</span>
+<span class="kw2">class</span> B <span class="sy4">:</span> <span class="kw2">public</span> A <span class="br0">&#123;</span>
+<span class="br0">&#125;</span><span class="sy4">;</span>
+&nbsp;
+<span class="co1">// should always succeed</span>
+<span class="kw2">static_assert</span><span class="br0">&#40;</span><span class="kw2">sizeof</span><span class="br0">&#40;</span>WinObject<span class="br0">&#41;</span> <span class="sy1">==</span> <span class="nu0">1</span>, <span class="st0">&quot;Not empty!&quot;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+&nbsp;
+<span class="co1">// susceptible to fail!</span>
+<span class="kw2">static_assert</span><span class="br0">&#40;</span><span class="kw2">sizeof</span><span class="br0">&#40;</span>A<span class="br0">&#41;</span> <span class="sy1">==</span> <span class="nu0">1</span>, <span class="st0">&quot;Not empty!&quot;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+<span class="kw2">static_assert</span><span class="br0">&#40;</span><span class="kw2">sizeof</span><span class="br0">&#40;</span>B<span class="br0">&#41;</span> <span class="sy1">==</span> <span class="nu0">1</span>, <span class="st0">&quot;Not empty!&quot;</span><span class="br0">&#41;</span><span class="sy4">;</span></pre>
+<p>It appears to work fine thanks to the Empty Base Optimization<sup class="reference">1</sup>. Such an optimization is possible because the standard says the base class sub-object <i>may</i> have zero size<sup class="reference">2</sup>... or may not!</p>
+<p>In other terms we are in the implementation defined gray zone. But since we target quite modern compilers (C++11) that's a reasonable lelvel of risk. And the <tt>static_assert</tt> is here to detect any problem.</p></div>
+        <div class="page_foot"><p>1. VC++ supports EBO since many years. It is known to have been restricted to single inheritance but even though that's fine for us.</p><p>2. 1.8/5</p></div>
+    </div>
+  </div>
+  <div class="clear"></div>
+</div>
+
+<div class="page_duo">
+  <div class="page_cell" id="page10">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page10">10</a></div>
+        <div class="page_body"><h3>Removing the C headers dependency</h3>
+<p class="important">Starting from now, the code will be specific to Win32 (x86). The support of Win64 (x64) will be reintroduced later. </p>
+<p>To move closer to a pure C++ interface, we need to get rid of the Win32 C headers. We are now going to clearly separate the interface from its implementation in such a way it does not depend on Win32 types.</p>
+<pre class="cpp11"><span class="co2">#ifndef WINAPI_MODULE_H</span>
+<span class="co2">#define WINAPI_MODULE_H</span>
+&nbsp;
+<span class="co2">#include &lt;cstdint&gt;</span>
+<span class="co2">#include &quot;winobject.h&quot;</span>
+&nbsp;
+<span class="kw2">namespace</span> winapi <span class="br0">&#123;</span>
+&nbsp;
+<span class="kw2">enum</span> <span class="kw2">class</span> LoadingFlags <span class="sy4">:</span> std<span class="sy4">::</span>uint32_t <span class="br0">&#123;</span>
+    DONT_RESOLVE_DLL_REFERENCES         <span class="sy1">=</span> <span class="nu12">0x00000001</span>,
+    LOAD_LIBRARY_AS_DATAFILE            <span class="sy1">=</span> <span class="nu12">0x00000002</span>,
+    LOAD_WITH_ALTERED_SEARCH_PATH       <span class="sy1">=</span> <span class="nu12">0x00000008</span>,
+    <span class="co1">// more flags...</span>
+    LOAD_LIBRARY_SEARCH_SYSTEM32        <span class="sy1">=</span> <span class="nu12">0x00000800</span>,
+    LOAD_LIBRARY_SEARCH_DEFAULT_DIRS    <span class="sy1">=</span> <span class="nu12">0x00001000</span>,
+<span class="br0">&#125;</span><span class="sy4">;</span>
+&nbsp;
+<span class="co1">// Loading flags can be combined together so we provide</span>
+<span class="co1">// an OR operator for that purpose</span>
+<span class="co1">// (can't use constexpr as it's not supported by VC++ 2013)</span>
+<span class="kw2">inline</span> LoadingFlags
+operator<span class="sy3">|</span><span class="br0">&#40;</span>LoadingFlags left, LoadingFlags right<span class="br0">&#41;</span> <span class="br0">&#123;</span>
+    <span class="kw1">return</span> <span class="kw2">static_cast</span><span class="sy1">&lt;</span>LoadingFlags<span class="sy1">&gt;</span><span class="br0">&#40;</span>
+        <span class="kw2">static_cast</span><span class="sy1">&lt;</span>std<span class="sy4">::</span>uint32_t<span class="sy1">&gt;</span><span class="br0">&#40;</span>left<span class="br0">&#41;</span> <span class="sy3">|</span>
+        <span class="kw2">static_cast</span><span class="sy1">&lt;</span>std<span class="sy4">::</span>uint32_t<span class="sy1">&gt;</span><span class="br0">&#40;</span>right<span class="br0">&#41;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+<span class="br0">&#125;</span></pre></div>
+        <div class="page_foot"></div>
+    </div>
+  </div>
+
+  <div class="page_cell" id="page11">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page11">11</a></div>
+        <div class="page_body"><pre class="cpp11"><span class="kw2">class</span> Module <span class="sy4">:</span> <span class="kw2">public</span> WinObject <span class="br0">&#123;</span>
+<span class="kw2">public</span><span class="sy4">:</span>
+    <span class="co1">// LoadLibraryA</span>
+    <span class="kw4">static</span> Module <span class="sy2">*</span> <span class="kw3">__stdcall</span> Load<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span> fileName<span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="co1">// LoadLibraryExW</span>
+    <span class="kw4">static</span> Module <span class="sy2">*</span> <span class="kw3">__stdcall</span> Load<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">wchar_t</span> <span class="sy2">*</span> fileName,
+        std<span class="sy4">::</span>nullptr_t, LoadingFlags flags<span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="co1">// FreeLibrary</span>
+    <span class="kw4">bool</span> <span class="kw3">__stdcall</span> Free<span class="br0">&#40;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+    <span class="co1">// GetProcAddress</span>
+    <span class="kw4">void</span><span class="sy2">*</span> <span class="kw3">__stdcall</span> GetProcAddress<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span> procName<span class="br0">&#41;</span><span class="sy4">;</span>
+<span class="br0">&#125;</span><span class="sy4">;</span>
+&nbsp;
+<span class="kw2">static_assert</span><span class="br0">&#40;</span><span class="kw2">sizeof</span><span class="br0">&#40;</span>Module<span class="br0">&#41;</span> <span class="sy1">==</span> <span class="nu0">1</span>, <span class="st0">&quot;Not empty!&quot;</span><span class="br0">&#41;</span><span class="sy4">;</span>
+<span class="br0">&#125;</span> <span class="co1">// namespace winapi</span>
+<span class="co2">#endif // WINAPI_MODULE_H</span></pre>
+<p>Common Win32 types such as <tt>UINT</tt> can be easily replaced by standard C++ types, including <tt>BOOL</tt> that can be safely substituted by <tt>bool</tt> since <tt>true</tt> and <tt>false</tt> are guaranted to be 1 and 0 by the standard<sup class="reference">1</sup>.</p>
+<p>Note the use of the <tt>winapi</tt> namespace</li>, of function overloading for <tt>Module::Load</tt>, and of <tt>std::nullptr_t</tt> to force the caller to pass <tt>nullptr</tt> (as required by the documentation of <tt>LoadLibraryEx</tt>).</p>
+<p>The preprocessor constants expected by <tt>LoadLibraryEx</tt> have been grouped together in a strongly typed enum. This C++11 feature is very convenient to control the underlying type of the enum, but the fact it is strongly typed forbids the values to be combined together as it is normally possible here (it's not always the case). A specific <tt>operator|</tt> had to be added for that purpose.</li>
+</ul>
+<p>You may wonder he reason why we introduced the <tt>__stdcall</tt> calling convention. That's what we are going to see right now.</p></div>
+        <div class="page_foot"><p>1. 4.5/4 and 4.7/4</p></div>
+    </div>
+  </div>
+  <div class="clear"></div>
+</div>
+
+<div class="page_duo">
+  <div class="page_cell" id="page12">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page12">12</a></div>
+        <div class="page_body"><h3>Removing the C++ overhead</h3>
+<p>One of the most tedious things when writing a wrapper is to declare plenty of functions that do not much more than forwarding their call to the underlying library. It's particularly true in our case since we don't intend to wrap the C functions but to directly call them from C++.</p>
+<p>We can greatly reduce the amount of work needed by combining some compiler extension with a pinch of assembly:</p>
+<pre class="cpp11"><span class="co2">#include &quot;module.h&quot;</span>
+&nbsp;
+<span class="co2">#define WIN32_LEAN_AND_MEAN</span>
+<span class="co2">#include &lt;windows.h&gt;</span>
+&nbsp;
+<span class="kw2">namespace</span> winapi <span class="br0">&#123;</span>
+&nbsp;
+<span class="kw3">__declspec</span><span class="br0">&#40;</span><span class="kw3">naked</span><span class="br0">&#41;</span> Module <span class="sy2">*</span> <span class="kw3">__stdcall</span>
+Module<span class="sy4">::</span>Load<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span><span class="br0">&#41;</span> <span class="br0">&#123;</span>
+    <span class="kw3">__asm</span> jmp LoadLibraryA
+<span class="br0">&#125;</span>
+<span class="kw3">__declspec</span><span class="br0">&#40;</span><span class="kw3">naked</span><span class="br0">&#41;</span> Module <span class="sy2">*</span> <span class="kw3">__stdcall</span>
+Module<span class="sy4">::</span>Load<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">wchar_t</span> <span class="sy2">*</span>, std<span class="sy4">::</span>nullptr_t, LoadingFlags<span class="br0">&#41;</span> <span class="br0">&#123;</span>
+    <span class="kw3">__asm</span> jmp LoadLibraryExW
+<span class="br0">&#125;</span>
+<span class="kw3">__declspec</span><span class="br0">&#40;</span><span class="kw3">naked</span><span class="br0">&#41;</span> <span class="kw4">bool</span> <span class="kw3">__stdcall</span>
+Module<span class="sy4">::</span>Free<span class="br0">&#40;</span><span class="br0">&#41;</span> <span class="br0">&#123;</span>
+    <span class="kw3">__asm</span> jmp FreeLibrary
+<span class="br0">&#125;</span>
+<span class="co1">// handle name collision with Win32</span>
+<span class="kw4">static</span> <span class="kw4">auto</span> Win32GetProcAddress <span class="sy1">=</span> <span class="sy3">&amp;</span><span class="sy4">::</span>GetProcAddress<span class="sy4">;</span>
+<span class="kw3">__declspec</span><span class="br0">&#40;</span><span class="kw3">naked</span><span class="br0">&#41;</span> <span class="kw4">void</span> <span class="sy2">*</span> <span class="kw3">__stdcall</span>
+Module<span class="sy4">::</span>GetProcAddress<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span><span class="br0">&#41;</span> <span class="br0">&#123;</span>
+    <span class="kw3">__asm</span> jmp dword ptr <span class="br0">&#91;</span>Win32GetProcAddress<span class="br0">&#93;</span>
+<span class="br0">&#125;</span>
+&nbsp;
+<span class="br0">&#125;</span> <span class="co1">// namespace winapi</span></pre>
+</div>
+        <div class="page_foot"></div>
+    </div>
+  </div>
+
+  <div class="page_cell" id="page13">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page13">13</a></div>
+        <div class="page_body"><p>The <tt>__declspec(naked)</tt> is a VC++ specific extension that tells the compiler not to generate prologue and epilogue for the function. The given stack frame is therefore not modified by C++ and it can be directly forwarded to the Win32 function. No more need to push again on the stack the given parameters, neither do we need their names! However we still need to include <i>windows.h</i> in the implementation file in order to get the name of the Win32 functions to jump to.</p>
+<p>As you may noticed, we had to declare a global variable <tt>Win32GetProcAddress</tt> to manage the name clash between Win32 and our library. Without that, the <tt>GetProcAddress</tt> member function would jump on itself, creating an infinite loop. The final result works well with Win32 but can't be used with Win64<sup class="reference">1</sup>.</p>
+<p>Of course, to work properly, our C++ function prototype must be compatible with the Win32 function being jumped to: same number of arguments, in the same order, same calling convention (<tt>__stdcall</tt>).</p>
+<p>If you are familliar with the <abbr title="Portable Executable">PE</abbr> format this trampoline technique should remind you how function import works. In short, for each imported function, the linker creates an entry in a place called the Import Address Table where the actual address of the function in memory is written / updated at runtime<sup class="reference">2</sup>. This IAT entry is in fact a simple pointer to a function living in another module (DLL).</p>
+<p>Now, a function pointer is a data, and you don't call a data: you call the function pointed by this data. So our direct call to <tt>LoadLibraryA</tt> should be nonsense:</p>
+<pre>call LoadLibraryA</pre>
+<p>but it does work fine. That's because the linker generated an additional stub that looks like this:</p>
+</div>
+        <div class="page_foot"><p>1. The x64 compiler does not support inline assembly.</p><p>2. Typically by the system loader of Windows.</p></div>
+    </div>
+  </div>
+  <div class="clear"></div>
+</div>
+
+<div class="page_duo">
+  <div class="page_cell" id="page14">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page14">14</a></div>
+        <div class="page_body"><pre>LoadLibraryA:
+    jmp dword ptr [__imp__LoadLibraryA@8]</pre>
+<p>where <tt>__imp__LoadLibraryA@8</tt> is the symbol name for the function pointer in the IAT. Therefore <tt>LoadLibraryA</tt> is not the real function living in kernel32.dll but a local function specific to our module<sup class="reference">1</sup>! As a result, we have our own generated trampoline jumping to another trampoline generated by the linker. Let's fix that now.</p>
+<pre class="cpp11"><span class="kw3">__declspec</span><span class="br0">&#40;</span><span class="kw3">naked</span><span class="br0">&#41;</span> Module <span class="sy2">*</span> <span class="kw3">__stdcall</span>
+Module<span class="sy4">::</span>Load<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span>, std<span class="sy4">::</span>nullptr_t, LoadingFlags<span class="br0">&#41;</span> <span class="br0">&#123;</span>
+    <span class="kw3">__asm</span> jmp dword ptr <span class="br0">&#91;</span>__imp__LoadLibraryA@<span class="nu19">8</span><span class="br0">&#93;</span>
+<span class="br0">&#125;</span>
+<span class="kw3">__declspec</span><span class="br0">&#40;</span><span class="kw3">naked</span><span class="br0">&#41;</span> Module <span class="sy2">*</span> <span class="kw3">__stdcall</span>
+Module<span class="sy4">::</span>Load<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">wchar_t</span> <span class="sy2">*</span>, std<span class="sy4">::</span>nullptr_t, LoadingFlags<span class="br0">&#41;</span> <span class="br0">&#123;</span>
+    <span class="kw3">__asm</span> jmp dword ptr <span class="br0">&#91;</span>__imp__LoadLibraryExW@<span class="nu19">8</span><span class="br0">&#93;</span>
+<span class="br0">&#125;</span>
+<span class="kw3">__declspec</span><span class="br0">&#40;</span><span class="kw3">naked</span><span class="br0">&#41;</span> <span class="kw4">bool</span> <span class="kw3">__stdcall</span>
+Module<span class="sy4">::</span>Free<span class="br0">&#40;</span><span class="br0">&#41;</span> <span class="br0">&#123;</span>
+    <span class="kw3">__asm</span> jmp dword ptr <span class="br0">&#91;</span>__imp__FreeLibrary@<span class="nu19">4</span><span class="br0">&#93;</span>
+<span class="br0">&#125;</span>
+<span class="kw3">__declspec</span><span class="br0">&#40;</span><span class="kw3">naked</span><span class="br0">&#41;</span> <span class="kw4">bool</span> <span class="kw3">__stdcall</span>
+Module<span class="sy4">::</span>GetProcAddress<span class="br0">&#40;</span><span class="kw4">const</span> <span class="kw4">char</span> <span class="sy2">*</span><span class="br0">&#41;</span> <span class="br0">&#123;</span>
+    <span class="kw3">__asm</span> jmp dword ptr <span class="br0">&#91;</span>__imp__GetProcAddress@<span class="nu19">8</span><span class="br0">&#93;</span>
+<span class="br0">&#125;</span></pre>
+<p>The overhead of our interface is now being reduced to a single jump instruction. In term of runtime overhead, we won't do better. But we can still go further by letting the linker generate the trampoline stub, allowing us to completely remove the implementation code!</p>
+<p class="important">This is the final stage of our technical exploration, and the proposed solution works on both x86 and x64 platforms.</p>
+</div>
+        <div class="page_foot"><p>1. This stub is not generated when our own module importing <tt>LoadLibraryA</tt> is being built but when the module that exports the function (kernel32.dll) was created. It was then placed with other similar stubs in the resulting import library file (kernel32.lib).</p></div>
+    </div>
+  </div>
+
+  <div class="page_cell" id="page15">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page15">15</a></div>
+        <div class="page_body"><h3>Removing the implementation code</h3>
+<p>To get rid of the implementation code, we are going to take advantage of a specific feature of the PE format: export forwarding. It is indeed possible to forward the implementation of an exported function to another DLL. You can see this feature as an aliasing mechanism where one DLL can propose an alternative name for a function exported by another. And that's exactly what we need to create a second interface to Win32!</p>
+<p>There are several ways to instruct the linker to create forwarded exports. It can be done via a specific pragma<sup class="reference">1</sup>, directly from the command line, or via a definition file. We will use the .def file so we can remove the .cpp file.</p>
+<p>The general syntax is as follows:</p>
+<pre>EXPORTS
+    &lt;alias&gt;=&lt;function&gt</pre>
+<p>where <i>alias</i> is the name of our C++ alias and <i>function</i> the name of the already existing function. Since the forwarding mechanism jumps from the export table to the import table of the module, it is not possible to create an alias of an exported function living in the same module: <i>function</i> must reference a function exported by another module.</p>
+<pre>; Win32/x86 implementation
+EXPORTS
+?Load@Module@winapi@@SGPAV12@PBD@Z=_LoadLibraryA@4
+?Free@Module@winapi@@QAG_NXZ=_FreeLibrary@4
+?GetProcAddress@Module@winapi@@QAGPAXPBD@Z=_GetProcAddress@8</pre>
+</div>
+        <div class="page_foot"><p>1. #pragma comment(linker, "/export:&lt;alias&gt;=&lt;function&gt;")</p></div>
+    </div>
+  </div>
+  <div class="clear"></div>
+</div>
+
+<div class="page_duo">
+  <div class="page_cell" id="page16">
+    <div class="page_frame">
+        <div class="page_head"><a class="page_number" href="#page16">16</a></div>
+        <div class="page_body"><p>The tricky part is to get the mangled names of the symbols:
+<ul>
+<li>for the C++ symbols: just build some testing code that references it and extract the mangled name from the resulting link error messages</li>
+<li>for the Win32 functions: the mangling scheme used is fairly simple: an underscore is prepended to the function name, and an at sign is appended followed by the total size in bytes of the expected parameters</li>
+<li>for the Win64 functions: names are not decorated!</li>
+</ul>
+<pre>; Win64/x64 implementation
+EXPORTS
+?Load@Module@winapi@@SAPEAV12@PEBD@Z=LoadLibraryA
+?Free@Module@winapi@@QEAA_NXZ=FreeLibrary
+?GetProcAddress@Module@winapi@@QEAAPEAXPEBD@Z=GetProcAddress</pre>
+
+<p>It's time to “build” the final result. From the x86 command prompt:</p>
+<pre>link /DLL /MACHINE:X86 /DEF:module-x86.def /OUT:win32cpp.dll
+/NOENTRY kernel32.lib /NOLOGO</pre>
+<p>The <tt>/NOENTRY</tt> option creates a resource-only DLL, making it void of any executable code. The resulting file size is 2.5 Ko!</p>
+<p>If we supply the <tt>/DEBUG</tt> option, we can afterwards verify that all its exports are forwarded:</p>
+<pre>link /dump /exports win32cpp.dll /NOLOGO
+
+ordinal hint RVA      name
+  1  0 00001000 ?Free@Module@winapi@@QAG_NXZ = _FreeLibrary@4
+  2  1 00001006 ?GetProcAddress@Module@winapi@@QAGPAXPBD@Z =
+_GetProcAddress@8
+  3  2 0000100C ?Load@Module@winapi@@SGPAV12@PBD@Z =
+_LoadLibraryA@4
+</pre>
+</div>
+        <div class="page_foot"></div>
+    </div>
+  </div>
+  <div class="clear"></div>
+</div>
+</div> 
+
+<hr />
+<footer>
+	<div class="row">
+		<div class="copyright span12">Copyright 2014-2016 - This web site is proudly free of advertisement and user tracking systems.</div>
+	</div>
+</div> 
+</footer>
+<script src="/js/jquery-1.9.1.js"></script>
+<script src="/js/bootstrap.js"></script>
+<script src="/js/tinynav.js"></script>
+<script src="/js/template.js"></script>
+</body>
+</html>

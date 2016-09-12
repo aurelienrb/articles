@@ -1,0 +1,38 @@
+.cpp11 .de1, .cpp11 .de2 {font: normal normal 1em/1.2em monospace; margin:0; padding:0; background:none; vertical-align:top;}
+.cpp11  {font-family:monospace;}
+.cpp11 .imp {font-weight: bold; color: red;}
+.cpp11 li, .cpp11 .li1 {font-weight: normal; vertical-align:top;}
+.cpp11 .ln {width:1px;text-align:right;margin:0;padding:0 2px;vertical-align:top;}
+.cpp11 .li2 {font-weight: bold; vertical-align:top;}
+.cpp11 .kw1 {color: #0000ff;}
+.cpp11 .kw2 {color: #0000ff;}
+.cpp11 .kw3 {color: #0000dd;}
+.cpp11 .kw4 {color: #0000ff;}
+.cpp11 .co1 {color: #666666;}
+.cpp11 .co2 {color: #339900;}
+.cpp11 .coMULTI {color: #ff0000; font-style: italic;}
+.cpp11 .es0 {color: #000099; font-weight: bold;}
+.cpp11 .es1 {color: #000099; font-weight: bold;}
+.cpp11 .es2 {color: #660099; font-weight: bold;}
+.cpp11 .es3 {color: #660099; font-weight: bold;}
+.cpp11 .es4 {color: #660099; font-weight: bold;}
+.cpp11 .es5 {color: #006699; font-weight: bold;}
+.cpp11 .br0 {color: #008000;}
+.cpp11 .sy0 {color: #008000;}
+.cpp11 .sy1 {color: #000080;}
+.cpp11 .sy2 {color: #000040;}
+.cpp11 .sy3 {color: #000040;}
+.cpp11 .sy4 {color: #008080;}
+.cpp11 .st0 {color: #FF0000;}
+.cpp11 .nu0 {color: #0000dd;}
+.cpp11 .nu6 {color: #208080;}
+.cpp11 .nu8 {color: #208080;}
+.cpp11 .nu12 {color: #208080;}
+.cpp11 .nu16 {color:#800080;}
+.cpp11 .nu17 {color:#800080;}
+.cpp11 .nu18 {color:#800080;}
+.cpp11 .nu19 {color:#800080;}
+.cpp11 .me1 {color: #007788;}
+.cpp11 .me2 {color: #007788;}
+.cpp11 .ln-xtra, .cpp11 li.ln-xtra, .cpp11 div.ln-xtra {background-color: #ffc;}
+.cpp11 span.xtra { display:block; }
