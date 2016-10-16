@@ -8,7 +8,7 @@ FirstPublication: 08 Jan 2014
 The Windows API is a C programming interface isn't it? That doesn't prevent it to be object oriented. And actually many programmers are aware of that aspect of the library through the use of C++ layers built on top of it. But if Win32 is really object oriented, could we not use it directly in C++ without requiring any intermediate layer? This article explores how to tweak the API in that way.
 ---
 
-# Win32 revisited - How to expose a modern C++11 interface from a 30 years old API
+# Win32 revisited - Exposing a C++11 interface from a C library designed 30 years ago
 
 ## Introduction
 
